@@ -76,7 +76,7 @@ export async function getTailscaleServeInfo(pi: ExtensionAPI, port: number) {
   }
 }
 
-export async function enableTailscaleServe(pi: ExtensionAPI, port: number) {
+export async function enableTailscaleServe(pi: ExtensionAPI, port: number, servePort = 443) {
   const before = await getTailscaleServeInfo(pi, port);
   if (before.active) {
     return {
@@ -90,7 +90,7 @@ export async function enableTailscaleServe(pi: ExtensionAPI, port: number) {
 
   try {
     const target = `http://127.0.0.1:${port}`;
-    const result = await pi.exec("tailscale", ["serve", "--bg", "--yes", "--https=443", target], { timeout: 5000 });
+    const result = await pi.exec("tailscale", ["serve", "--bg", "--yes", `--https=${servePort}`, target], { timeout: 5000 });
     if (result.code !== 0) {
       return {
         enabled: false,
@@ -120,7 +120,7 @@ export async function enableTailscaleServe(pi: ExtensionAPI, port: number) {
   }
 }
 
-export async function disableMatchingTailscaleServe(pi: ExtensionAPI, port: number) {
+export async function disableMatchingTailscaleServe(pi: ExtensionAPI, port: number, servePort = 443) {
   const info = await getTailscaleServeInfo(pi, port);
   if (!info.active) {
     return {
@@ -130,14 +130,14 @@ export async function disableMatchingTailscaleServe(pi: ExtensionAPI, port: numb
   }
 
   try {
-    const off = await pi.exec("tailscale", ["serve", "--yes", "--https=443", "off"], { timeout: 5000 });
+    const off = await pi.exec("tailscale", ["serve", "--yes", `--https=${servePort}`, "off"], { timeout: 5000 });
     if (off.code === 0) {
       return { disabled: true, error: "" };
     }
 
     return {
       disabled: false,
-      error: (off.stderr || off.stdout || `tailscale serve --https=443 off exited ${off.code}`).trim(),
+      error: (off.stderr || off.stdout || `tailscale serve --https=${servePort} off exited ${off.code}`).trim(),
     };
   } catch (error) {
     return {

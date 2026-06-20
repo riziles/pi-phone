@@ -6,6 +6,7 @@ export type PhoneConfig = {
   token: string;
   cwd: string;
   idleTimeoutMs: number;
+  tailscalePort: number;
 };
 
 export type ParsedPhoneArgs = {

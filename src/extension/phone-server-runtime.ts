@@ -78,6 +78,7 @@ export class PhoneServerRuntime {
     idleTimeoutMs: Number.isFinite(Number(process.env.PI_PHONE_IDLE_MINUTES))
       ? Math.max(0, Math.round(Number(process.env.PI_PHONE_IDLE_MINUTES) * 60_000))
       : DEFAULT_IDLE_TIMEOUT_MS,
+    tailscalePort: 443,
   };
   private server: Server | null = null;
   private wss: WebSocketServer | null = null;
@@ -192,7 +193,7 @@ export class PhoneServerRuntime {
       }
 
       await this.stopServer();
-      await disableMatchingTailscaleServe(this.pi, this.config.port);
+      await disableMatchingTailscaleServe(this.pi, this.config.port, this.config.tailscalePort);
     }, this.config.idleTimeoutMs);
   }
 
@@ -1062,7 +1063,7 @@ export class PhoneServerRuntime {
       nextConfig.token = this.generateToken();
     }
 
-    const changed = ["host", "port", "token", "cwd", "idleTimeoutMs"].some(
+    const changed = ["host", "port", "token", "cwd", "idleTimeoutMs", "tailscalePort"].some(
       (key) => nextConfig[key as keyof PhoneConfig] !== this.config[key as keyof PhoneConfig],
     );
     const generatedToken = nextConfig.token && nextConfig.token !== this.config.token && !parsed.tokenSpecified;
@@ -1093,7 +1094,7 @@ export class PhoneServerRuntime {
     }
 
     await this.sessionPool?.ensureDefaultWorker();
-    const tailscale = await enableTailscaleServe(this.pi, this.config.port);
+    const tailscale = await enableTailscaleServe(this.pi, this.config.port, this.config.tailscalePort);
     this.updateStatusUi(ctx);
     ctx.ui.notify(this.statusText(), "info");
     if (tailscale.enabled) {
@@ -1107,7 +1108,7 @@ export class PhoneServerRuntime {
       }
     } else if (tailscale.error) {
       ctx.ui.notify(`Could not configure Tailscale Serve automatically: ${tailscale.error}`, "warning");
-      ctx.ui.notify(`Manual fallback: tailscale serve --bg --https=443 http://127.0.0.1:${this.config.port}`, "info");
+      ctx.ui.notify(`Manual fallback: tailscale serve --bg --https=${this.config.tailscalePort} http://127.0.0.1:${this.config.port}`, "info");
     }
     if (generatedToken) {
       ctx.ui.notify(`Generated token: ${this.config.token}`, "warning");
@@ -1121,7 +1122,7 @@ export class PhoneServerRuntime {
     const hadLocalServer = Boolean(this.server);
     await this.stopServer();
     const externalStop = hadLocalServer ? null : await stopPersistedRuntime(this.config.host, this.config.port);
-    const tailscale = await disableMatchingTailscaleServe(this.pi, this.config.port);
+    const tailscale = await disableMatchingTailscaleServe(this.pi, this.config.port, this.config.tailscalePort);
     this.updateStatusUi(ctx);
 
     if (hadLocalServer || externalStop?.stopped) {
@@ -1211,7 +1212,7 @@ export class PhoneServerRuntime {
   async handleSessionShutdown(ctx: ExtensionContext) {
     this.captureCtx(ctx);
     await this.stopServer();
-    await disableMatchingTailscaleServe(this.pi, this.config.port);
+    await disableMatchingTailscaleServe(this.pi, this.config.port, this.config.tailscalePort);
     this.updateStatusUi(ctx);
   }
 }

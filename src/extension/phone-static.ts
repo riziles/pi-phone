@@ -19,7 +19,7 @@ export const mimeTypes: Record<string, string> = {
 };
 
 export function sanitizePublicPath(pathname: string): string | null {
-  const normalized = normalize(pathname).replace(/^\/+/, "");
+  const normalized = normalize(pathname).replace(/^[/\\]+/, "");
   const filePath = resolve(publicDir, normalized === "" ? "index.html" : normalized);
   if (!filePath.startsWith(publicDir)) return null;
   return filePath;

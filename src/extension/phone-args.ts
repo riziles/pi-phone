@@ -101,6 +101,20 @@ export function parsePhoneStartArgs(args: string | undefined, current: PhoneConf
       continue;
     }
 
+    if (token === "--tailscale-port" && tokens[index + 1] !== undefined) {
+      const port = Number(tokens[index + 1]);
+      if (Number.isFinite(port) && port > 0 && port <= 65535) next.tailscalePort = port;
+      index += 2;
+      continue;
+    }
+
+    if (token.startsWith("--tailscale-port=")) {
+      const port = Number(token.slice(17));
+      if (Number.isFinite(port) && port > 0 && port <= 65535) next.tailscalePort = port;
+      index += 1;
+      continue;
+    }
+
     if (/^\d+$/.test(token)) {
       next.port = Number(token);
       index += 1;
