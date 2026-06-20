@@ -6,6 +6,10 @@ export const state = {
   snapshotState: null,
   snapshotWorkerId: null,
   messages: [],
+  lastMessageCount: 0,
+  renderedStart: 0,
+  allMessages: [],
+  sentinelObserver: null,
   commands: [],
   models: [],
   sessions: [],
@@ -40,6 +44,7 @@ export const state = {
   lastSheetPointerAction: "",
   lastSheetPointerActionAt: 0,
   toolPanelOpen: new Map(),
+  virtualScrollBatch: 40,
 };
 
 export const el = {

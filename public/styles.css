@@ -291,6 +291,8 @@ pre {
 
 .message {
   padding: 0.95rem 1rem;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 220px;
 }
 
 .message.user {
@@ -1069,6 +1071,13 @@ pre {
 
 .stat-chip strong {
   color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message {
+    content-visibility: visible;
+    contain-intrinsic-size: none;
+  }
 }
 
 .jump-to-latest-button {

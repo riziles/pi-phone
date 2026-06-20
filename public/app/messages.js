@@ -252,16 +252,8 @@ function toolDetailsForSecondarySection(item) {
   return Object.keys(rest).length ? rest : null;
 }
 
-function renderMessage(item) {
+function renderMessageBody(item) {
   const richTool = item.kind === "tool" ? renderRichToolContent(item) : "";
-  const roleLabel = {
-    assistant: "Pi",
-    custom: item.title || "Extension",
-    summary: item.title || "Summary",
-    system: "System",
-    tool: richTool ? "Tool" : item.title || "Tool",
-    user: "You",
-  }[item.kind] || "Message";
 
   const renderedUser = item.kind === "user"
     ? renderUserContent(item.rawContent, item.text || "")
@@ -281,15 +273,33 @@ function renderMessage(item) {
       : "";
 
   return `
-    <article class="message ${item.kind}">
+        ${bodyMain}
+        ${richTool ? "" : renderMessageMeta(item, { suppressImageCount: renderedUser.renderedImages > 0 })}
+        ${extraDetails}
+      `;
+}
+
+function renderMessage(item) {
+  const richTool = item.kind === "tool" ? renderRichToolContent(item) : "";
+  const roleLabel = {
+    assistant: "Pi",
+    custom: item.title || "Extension",
+    summary: item.title || "Summary",
+    system: "System",
+    tool: richTool ? "Tool" : item.title || "Tool",
+    user: "You",
+  }[item.kind] || "Message";
+
+  const liveAttrs = item.live ? ' id="message-live" data-live="true"' : "";
+
+  return `
+    <article class="message ${item.kind}"${liveAttrs}>
       <div class="message-header">
         <div class="role-badge">${escapeHtml(roleLabel)}${item.live ? " · live" : ""}</div>
         <div class="meta">${escapeHtml(item.meta || "")}</div>
       </div>
       <div class="message-body">
-        ${bodyMain}
-        ${richTool ? "" : renderMessageMeta(item, { suppressImageCount: renderedUser.renderedImages > 0 })}
-        ${extraDetails}
+        ${renderMessageBody(item)}
       </div>
     </article>
   `;
@@ -332,12 +342,19 @@ function hasLiveItems() {
 export function clearTransientState() {
   state.liveAssistant = null;
   state.liveTools.clear();
+  if (state.sentinelObserver) {
+    state.sentinelObserver.disconnect();
+    state.sentinelObserver = null;
+  }
 }
 
 export function clearSnapshotView() {
   state.snapshotState = null;
   state.snapshotWorkerId = null;
   state.messages = [];
+  state.lastMessageCount = 0;
+  state.renderedStart = 0;
+  state.allMessages = [];
   clearTransientState();
 }
 
@@ -369,9 +386,81 @@ export function upsertLiveTool(toolId, value) {
   renderMessages();
 }
 
+const VIRTUAL_BATCH = 40;
+
+function renderFullMessages(items, { forceScroll, streaming } = {}) {
+  state.lastMessageCount = items.length;
+  state.renderedStart = items.length;
+  state.allMessages = items;
+
+  if (items.length <= VIRTUAL_BATCH) {
+    el.messages.innerHTML = items.map(renderMessage).join("");
+    updateJumpToLatestButton();
+    scrollMessagesToBottom({ force: forceScroll, streaming, behavior: "smooth" });
+    return;
+  }
+
+  // Lazy-load: render only last batch, add sentinel for older messages
+  const start = items.length - VIRTUAL_BATCH;
+  state.renderedStart = start;
+  const html = `<div id="messages-sentinel" style="height:1px;pointer-events:none" aria-hidden="true"></div>`
+    + items.slice(start).map(renderMessage).join("");
+  el.messages.innerHTML = html;
+  setupSentinel();
+  updateJumpToLatestButton();
+  scrollMessagesToBottom({ force: forceScroll, streaming, behavior: "smooth" });
+}
+
+function setupSentinel() {
+  if (state.sentinelObserver) {
+    state.sentinelObserver.disconnect();
+    state.sentinelObserver = null;
+  }
+
+  const sentinel = document.getElementById("messages-sentinel");
+  if (!sentinel || state.renderedStart <= 0) return;
+
+  state.sentinelObserver = new IntersectionObserver((entries) => {
+    if (entries[0]?.isIntersecting) {
+      loadOlderBatch();
+    }
+  }, { rootMargin: "300px" });
+  state.sentinelObserver.observe(sentinel);
+}
+
+function loadOlderBatch() {
+  if (state.sentinelObserver) {
+    state.sentinelObserver.disconnect();
+    state.sentinelObserver = null;
+  }
+
+  const oldSentinel = document.getElementById("messages-sentinel");
+  if (oldSentinel) oldSentinel.remove();
+
+  const end = state.renderedStart;
+  const start = Math.max(0, end - VIRTUAL_BATCH);
+  state.renderedStart = start;
+
+  const olderHtml = state.allMessages.slice(start, end).map(renderMessage).join("");
+  el.messages.insertAdjacentHTML("afterbegin", olderHtml);
+
+  if (start > 0) {
+    el.messages.insertAdjacentHTML("afterbegin",
+      '<div id="messages-sentinel" style="height:1px;pointer-events:none" aria-hidden="true"></div>');
+    setupSentinel();
+  }
+}
+
 export function renderMessages({ forceScroll = false, streaming = hasLiveItems() } = {}) {
   const items = currentItems();
   if (!items.length) {
+    state.lastMessageCount = 0;
+    state.renderedStart = 0;
+    state.allMessages = [];
+    if (state.sentinelObserver) {
+      state.sentinelObserver.disconnect();
+      state.sentinelObserver = null;
+    }
     el.messages.innerHTML = `
       <article class="message system">
         <div class="message-header"><div class="role-badge">Ready</div></div>
@@ -384,9 +473,23 @@ export function renderMessages({ forceScroll = false, streaming = hasLiveItems()
     return;
   }
 
-  el.messages.innerHTML = items.map(renderMessage).join("");
-  updateJumpToLatestButton();
-  scrollMessagesToBottom({ force: forceScroll, streaming, behavior: "smooth" });
+  // Streaming patch mode: only update the live message body, avoiding full DOM rebuild
+  if (streaming && state.lastMessageCount === items.length) {
+    const liveEl = document.getElementById("message-live");
+    if (liveEl) {
+      const bodyEl = liveEl.querySelector(".message-body");
+      const liveItem = items.find((i) => i.live);
+      if (bodyEl && liveItem) {
+        bodyEl.innerHTML = renderMessageBody(liveItem);
+      }
+      scrollMessagesToBottom({ force: forceScroll, streaming: true, behavior: "auto" });
+      updateJumpToLatestButton();
+      return;
+    }
+  }
+
+  // Full render
+  renderFullMessages(items, { forceScroll, streaming });
 }
 
 export function renderWidgets() {
